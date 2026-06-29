@@ -13,7 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = JSON.parse(localStorage.getItem('seeder_user'));
     document.getElementById('user-name').textContent = user.name;
     document.getElementById('user-role').textContent = user.role;
-    document.getElementById('main-nav').classList.remove('hidden');
+    
+    // Iniciais do usuário
+    const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+    document.getElementById('user-initials').textContent = initials;
+
     if (user.role === 'admin_gap') {
         document.getElementById('nav-users').classList.remove('hidden');
     }
@@ -110,20 +114,32 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function renderVariables(data) {
-        let html = '<table><thead><tr><th>Nome / Categoria</th><th>Valor / Padrão</th><th>Status</th></tr></thead><tbody>';
+        if (data.length === 0) {
+            variablesList.innerHTML = '<div class="text-center py-10 text-slate-400">Nenhuma variável nesta categoria.</div>';
+            return;
+        }
+        let html = '<div class="space-y-4">';
         data.forEach(v => {
             const isMissing = v.required && !v.value && !v.default_value;
-            const valueDisplay = v.value || (v.default_value ? `<em>${v.default_value}</em>` : '');
-            const nameStyle = v.required ? 'font-weight: bold; color: #d81b60;' : '';
-            const statusBadge = v.required ? (isMissing ? '<span class="badge" style="background: #f8d7da; color: #721c24;">Pendente</span>' : '<span class="badge" style="background: #d4edda; color: #155724;">OK</span>') : '';
+            const valueDisplay = v.value || (v.default_value ? `${v.default_value} (padrão)` : 'Não definido');
+            const statusColor = isMissing ? 'bg-red-100 text-red-600' : (v.required ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500');
+            const statusText = isMissing ? 'Pendente' : (v.required ? 'Obrigatória' : 'Opcional');
             
-            html += `<tr>
-                <td><code style="${nameStyle}">${v.name}</code><br><small>${v.category || 'geral'}</small></td>
-                <td>${valueDisplay || '<span style="color:#999">Não definido</span>'}</td>
-                <td>${statusBadge}</td>
-            </tr>`;
+            html += `
+            <div class="p-4 rounded-2xl border border-slate-100 bg-slate-50/30 hover:bg-white hover:shadow-sm transition-all">
+                <div class="flex justify-between items-start mb-1">
+                    <code class="text-sm font-bold ${v.required ? 'text-slate-900' : 'text-slate-600'}">${v.name}</code>
+                    <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${statusColor}">${statusText}</span>
+                </div>
+                <div class="text-sm ${isMissing ? 'text-slate-400 italic' : 'text-slate-700'} truncate">
+                    ${valueDisplay}
+                </div>
+                <div class="mt-2 text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                    ${v.category || 'geral'}
+                </div>
+            </div>`;
         });
-        html += '</tbody></table>';
+        html += '</div>';
         variablesList.innerHTML = html;
     }
 
@@ -140,19 +156,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. Carregar Scripts
     function loadScripts(orgId) {
-        scriptsList.innerHTML = 'Carregando...';
+        scriptsList.innerHTML = '<div class="text-slate-400 text-sm">Carregando módulos...</div>';
         authFetch(`../api/scripts.php?org=${orgId}`)
             .then(res => res.json())
             .then(data => {
                 scriptsList.innerHTML = '';
                 data.forEach(s => {
-                    const div = document.createElement('div');
-                    div.className = 'script-item';
-                    div.innerHTML = `
-                        <input type="checkbox" name="scripts" value="${s.id}" id="script-${s.id}" ${s.is_core ? 'checked' : ''}>
-                        <label for="script-${s.id}">${s.name} ${s.is_core ? '(Core)' : ''}</label>
+                    const label = document.createElement('label');
+                    label.className = 'flex items-center p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-cyan-200 cursor-pointer transition-all group';
+                    label.innerHTML = `
+                        <input type="checkbox" name="scripts" value="${s.id}" class="w-4 h-4 text-cyan-500 rounded border-slate-300 focus:ring-cyan-500" ${s.is_core ? 'checked' : ''}>
+                        <div class="ml-3">
+                            <span class="text-sm font-semibold text-slate-700 group-hover:text-slate-900">${s.name}</span>
+                            ${s.is_core ? '<span class="ml-2 text-[10px] bg-cyan-100 text-cyan-600 px-1.5 py-0.5 rounded font-bold uppercase">Core</span>' : ''}
+                        </div>
                     `;
-                    scriptsList.appendChild(div);
+                    scriptsList.appendChild(label);
                 });
             });
     }

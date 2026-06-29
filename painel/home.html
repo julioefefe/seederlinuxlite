@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeederLinux Lite - Provisionamento Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .hero-gradient {
+            background: radial-gradient(circle at top right, #1e293b 0%, #0f172a 100%);
+        }
+        .seed-icon {
+            filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.5));
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <!-- Navbar -->
+    <nav class="flex items-center justify-between px-8 py-6 bg-slate-900 text-white shadow-lg">
+        <div class="flex items-center gap-2">
+            <div class="w-10 h-10 bg-cyan-500 rounded-lg flex items-center justify-center seed-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+            </div>
+            <span class="text-xl font-bold tracking-tight">SeederLinux <span class="text-cyan-400">Lite</span></span>
+        </div>
+        <a href="login.html" class="bg-cyan-500 hover:bg-cyan-400 text-slate-900 px-6 py-2 rounded-full font-semibold transition-all shadow-md">Acessar Painel</a>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero-gradient text-white py-24 px-8 text-center">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-5xl md:text-6xl font-extrabold mb-6 leading-tight">
+                Semeie Estações Linux com <span class="text-cyan-400">Precisão Militar</span>
+            </h1>
+            <p class="text-xl text-slate-300 mb-10 max-w-2xl mx-auto">
+                O SeederLinux Lite automatiza o provisionamento de estações em múltiplas organizações, garantindo conformidade e agilidade na entrega de sistemas configurados.
+            </p>
+            <div class="flex flex-wrap justify-center gap-4">
+                <a href="login.html" class="bg-cyan-500 hover:bg-cyan-400 text-slate-900 px-8 py-4 rounded-lg font-bold text-lg transition-all transform hover:scale-105">Começar Provisionamento</a>
+                <a href="#features" class="border border-slate-700 hover:bg-slate-800 px-8 py-4 rounded-lg font-bold text-lg transition-all">Conhecer Módulos</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 px-8 max-w-7xl mx-auto">
+        <div class="grid md:grid-cols-3 gap-8">
+            <!-- Feature 1 -->
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all">
+                <div class="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-xl flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold mb-3">Multi-OM</h3>
+                <p class="text-slate-600">Gerencie variáveis dinâmicas para diferentes Organizações Militares em uma única interface centralizada.</p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all">
+                <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold mb-3">Scripts Modulares</h3>
+                <p class="text-slate-600">Combine scripts core (domínio, branding, segurança) para gerar bundles de instalação customizados.</p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all">
+                <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold mb-3">Segurança RBAC</h3>
+                <p class="text-slate-600">Controle de acesso rigoroso por perfil (Admin GAP, Operador OM, Auditor) e proteção via JWT.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-500 py-12 px-8 text-center border-t border-slate-800">
+        <p>© 2024 SeederLinux Lite - Sistema de Provisionamento de Estações</p>
+    </footer>
+</body>
+</html>
