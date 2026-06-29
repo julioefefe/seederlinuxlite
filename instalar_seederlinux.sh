@@ -107,8 +107,8 @@ case $DISTRO in
             git \
             unzip \
             openssl \
-            rsync \
-            jq
+            jq \
+            rsync
         ;;
     debian)
         apt install -y \
@@ -128,8 +128,8 @@ case $DISTRO in
             git \
             unzip \
             openssl \
-             rsync \
-            jq
+            jq \
+            rsync
         ;;
     *)
         echo -e "${VERMELHO}❌ Distribuição não suportada: $DISTRO${SEM_COR}"
@@ -149,13 +149,20 @@ systemctl start postgresql
 systemctl enable postgresql
 
 # Criar usuário e banco
-su - postgres <<EOF
+su - postgres <<'PGEOF'
+DB_USER="seederlinux"
+DB_PASS="seederlinux_placeholder"
+DB_NAME="seederlinux"
+
 psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1 || \
     psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 || \
     psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
 psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
-EOF
+PGEOF
+
+# Ajustar senha real
+su - postgres -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';\""
 
 echo -e "   ${VERDE}✓ Banco '$DB_NAME' criado (usuário: $DB_USER)${SEM_COR}"
 
@@ -165,9 +172,9 @@ echo -e "   ${VERDE}✓ Banco '$DB_NAME' criado (usuário: $DB_USER)${SEM_COR}"
 echo -e "\n${AZUL}═══ [5/8] Copiando arquivos...${SEM_COR}"
 
 # Se o script está rodando do diretório do projeto
-if [ -f "$SCRIPT_DIR/api/config.php" ]; then
+if [ -f "$SCRIPT_DIR/api/config.php" ] || [ -f "$SCRIPT_DIR/api/organizations.php" ]; then
     mkdir -p "$WEB_DIR"
-    rsync -av --exclude='.git' --exclude='node_modules' "$SCRIPT_DIR/" "$WEB_DIR/"
+    rsync -av --exclude='.git' --exclude='node_modules' --exclude='*.zip' "$SCRIPT_DIR/" "$WEB_DIR/"
     echo -e "   ${VERDE}✓ Arquivos copiados de $SCRIPT_DIR${SEM_COR}"
 else
     echo -e "   ${AMARELO}⚠ Script não está no diretório do projeto${SEM_COR}"
@@ -227,8 +234,11 @@ run_sql_file() {
     local desc="$2"
     if [ -f "$file" ]; then
         echo "   Executando: $desc"
-        PGPASSWORD=$DB_PASS psql -h localhost -U "$DB_USER" -d "$DB_NAME" -f "$file" > /dev/null 2>&1
-        echo -e "   ${VERDE}✓ $desc${SEM_COR}"
+        if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -f "$file" 2>&1 | tee /tmp/seeder_migration.log; then
+            echo -e "   ${VERDE}✓ $desc${SEM_COR}"
+        else
+            echo -e "   ${AMARELO}⚠ Erro ao executar $desc (verifique /tmp/seeder_migration.log)${SEM_COR}"
+        fi
     else
         echo -e "   ${AMARELO}⚠ Arquivo não encontrado: $file${SEM_COR}"
     fi
@@ -250,7 +260,7 @@ echo "   Criando usuário administrador padrão..."
 HASH=$(php -r "echo password_hash('$ADMIN_PASS', PASSWORD_BCRYPT);")
 
 # Inserir ou atualizar admin
-PGPASSWORD=$DB_PASS psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<EOF
+PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<EOF
 INSERT INTO users (name, email, password_hash, role, active, created_at)
 VALUES ('$ADMIN_NAME', '$ADMIN_EMAIL', '$HASH', 'admin_gap', TRUE, NOW())
 ON CONFLICT (email) 
