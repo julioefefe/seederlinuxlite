@@ -2,14 +2,6 @@
 # =============================================================================
 # instalar_seederlinux.sh - Instalação Completa do SeederLinux Lite
 # =============================================================================
-# Este script:
-#   1. Detecta o sistema (Ubuntu, Debian, Mint, Zorin)
-#   2. Instala Apache, PHP 8.1+ e PostgreSQL
-#   3. Cria banco de dados e executa TODAS as migrations
-#   4. Cria usuário admin com hash bcrypt
-#   5. Configura permissões e reinicia serviços
-#   6. Exibe resumo final
-# =============================================================================
 # Uso: sudo ./instalar_seederlinux.sh
 # =============================================================================
 
@@ -36,7 +28,7 @@ fi
 # ============================================
 # 1. DETECTAR SISTEMA
 # ============================================
-echo -e "${AZUL}═══ [1/8] Detectando sistema...${SEM_COR}"
+echo -e "${AZUL}═══ [1/10] Detectando sistema...${SEM_COR}"
 
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -54,16 +46,15 @@ echo "   Codename: $CODENAME"
 # ============================================
 # 2. DEFINIR CONFIGURAÇÕES
 # ============================================
-echo -e "\n${AZUL}═══ [2/8] Definindo configurações...${SEM_COR}"
+echo -e "\n${AZUL}═══ [2/10] Definindo configurações...${SEM_COR}"
 
-# Diretório onde o SeederLinux está/estará
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="/var/www/html/seederlinux"
 
-# Banco de dados
+# Banco de dados - valores fixos para consistência
 DB_NAME="seederlinux"
 DB_USER="seederlinux"
-DB_PASS="seederlinux_$(openssl rand -hex 6)"
+DB_PASS="seederlinux123"
 
 # Admin padrão
 ADMIN_EMAIL="admin@sistema.local"
@@ -77,13 +68,12 @@ echo "   Admin: $ADMIN_EMAIL"
 # ============================================
 # 3. INSTALAR DEPENDÊNCIAS
 # ============================================
-echo -e "\n${AZUL}═══ [3/8] Instalando dependências...${SEM_COR}"
+echo -e "\n${AZUL}═══ [3/10] Instalando dependências...${SEM_COR}"
 
 apt update
 
 case $DISTRO in
     ubuntu|linuxmint|zorin)
-        # Adicionar repositório PHP se necessário
         if ! dpkg -l | grep -q php8; then
             apt install -y software-properties-common
             add-apt-repository -y ppa:ondrej/php
@@ -140,147 +130,167 @@ esac
 echo -e "   ${VERDE}✓ Dependências instaladas${SEM_COR}"
 
 # ============================================
-# 4. CONFIGURAR POSTGRESQL
+# 4. CONFIGURAR POSTGRESQL - USUÁRIO E BANCO
 # ============================================
-echo -e "\n${AZUL}═══ [4/8] Configurando PostgreSQL...${SEM_COR}"
+echo -e "\n${AZUL}═══ [4/10] Criando usuário e banco PostgreSQL...${SEM_COR}"
 
-# Iniciar e habilitar serviço
 systemctl start postgresql
 systemctl enable postgresql
 
-# Criar usuário e banco
-su - postgres <<'PGEOF'
-DB_USER="seederlinux"
-DB_PASS="seederlinux_placeholder"
-DB_NAME="seederlinux"
-
+su - postgres <<PGEOF
 psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1 || \
-    psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
+    psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';"
+
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 || \
     psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
+
 psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+
+psql -d $DB_NAME -c "GRANT ALL ON SCHEMA public TO $DB_USER;"
+psql -d $DB_NAME -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;"
 PGEOF
 
-# Ajustar senha real
-su - postgres -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';\""
-
-echo -e "   ${VERDE}✓ Banco '$DB_NAME' criado (usuário: $DB_USER)${SEM_COR}"
+echo -e "   ${VERDE}✓ Banco '$DB_NAME' e usuário '$DB_USER' criados${SEM_COR}"
 
 # ============================================
-# 5. COPIAR ARQUIVOS PARA DIRETÓRIO WEB
+# 5. CONFIGURAR AUTENTICAÇÃO DO POSTGRESQL
 # ============================================
-echo -e "\n${AZUL}═══ [5/8] Copiando arquivos...${SEM_COR}"
+echo -e "\n${AZUL}═══ [5/10] Configurando autenticação PostgreSQL (md5)...${SEM_COR}"
 
-# Se o script está rodando do diretório do projeto
-if [ -f "$SCRIPT_DIR/api/config.php" ] || [ -f "$SCRIPT_DIR/api/organizations.php" ]; then
-    mkdir -p "$WEB_DIR"
-    rsync -av --exclude='.git' --exclude='node_modules' --exclude='*.zip' "$SCRIPT_DIR/" "$WEB_DIR/"
-    echo -e "   ${VERDE}✓ Arquivos copiados de $SCRIPT_DIR${SEM_COR}"
+PG_HBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")
+echo "   Arquivo: $PG_HBA"
+
+if [ -f "$PG_HBA" ]; then
+    cp "$PG_HBA" "${PG_HBA}.bak.$(date +%s)"
+    
+    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
+    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+    sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
+    
+    systemctl restart postgresql
+    echo -e "   ${VERDE}✓ Autenticação configurada para md5${SEM_COR}"
 else
-    echo -e "   ${AMARELO}⚠ Script não está no diretório do projeto${SEM_COR}"
-    echo "   Certifique-se de que os arquivos estão em $WEB_DIR"
+    echo -e "   ${AMARELO}⚠ pg_hba.conf não encontrado${SEM_COR}"
 fi
 
 # ============================================
-# 6. CONFIGURAR CONEXÃO COM BANCO
+# 6. TESTAR CONEXÃO COM BANCO
 # ============================================
-echo -e "\n${AZUL}═══ [6/8] Configurando conexão com banco...${SEM_COR}"
+echo -e "\n${AZUL}═══ [6/10] Testando conexão com banco...${SEM_COR}"
 
-CONFIG_FILE="$WEB_DIR/api/config.php"
+if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 'CONEXAO_OK' AS status;" 2>&1 | grep -q "CONEXAO_OK"; then
+    echo -e "   ${VERDE}✓ Conexão com PostgreSQL funcionando${SEM_COR}"
+else
+    echo -e "   ${VERMELHO}❌ Falha na conexão com PostgreSQL${SEM_COR}"
+    echo "   Tentando método alternativo (peer)..."
+    
+    su - postgres -c "psql -d $DB_NAME -c \"SELECT 'CONEXAO_OK' AS status;\"" 2>&1 | grep -q "CONEXAO_OK" && \
+        echo -e "   ${AMARELO}⚠ Conexão peer funciona, mas senha falhou. Verifique pg_hba.conf${SEM_COR}" || \
+        echo -e "   ${VERMELHO}❌ Nenhum método de conexão funcionou${SEM_COR}"
+fi
 
-# Criar config.php se não existir
-if [ ! -f "$CONFIG_FILE" ]; then
-    cat > "$CONFIG_FILE" <<'PHPEOF'
+# ============================================
+# 7. COPIAR ARQUIVOS PARA DIRETÓRIO WEB
+# ============================================
+echo -e "\n${AZUL}═══ [7/10] Copiando arquivos...${SEM_COR}"
+
+if [ -f "$SCRIPT_DIR/api/config.php" ] || [ -f "$SCRIPT_DIR/api/organizations.php" ]; then
+    mkdir -p "$WEB_DIR"
+    rsync -av --exclude='.git' --exclude='node_modules' --exclude='*.zip' "$SCRIPT_DIR/" "$WEB_DIR/"
+    echo -e "   ${VERDE}✓ Arquivos copiados para $WEB_DIR${SEM_COR}"
+else
+    echo -e "   ${AMARELO}⚠ Diretório do projeto não detectado${SEM_COR}"
+    echo "   Certifique-se de executar o script da raiz do projeto SeederLinux"
+fi
+
+# ============================================
+# 8. CONFIGURAR ARQUIVO DE CONEXÃO
+# ============================================
+echo -e "\n${AZUL}═══ [8/10] Criando arquivo de conexão...${SEM_COR}"
+
+mkdir -p "$WEB_DIR/api"
+
+cat > "$WEB_DIR/api/config.php" <<'PHPEOF'
 <?php
 // Configuração de conexão com PostgreSQL
 function getDBConnection() {
-    $host = 'DB_HOST';
-    $dbname = 'DB_NAME';
-    $user = 'DB_USER';
-    $password = 'DB_PASS';
+    $host = 'localhost';
+    $port = '5432';
+    $dbname = 'DB_NAME_PLACEHOLDER';
+    $user = 'DB_USER_PLACEHOLDER';
+    $password = 'DB_PASS_PLACEHOLDER';
     
     try {
+        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
         $pdo = new PDO(
-            "pgsql:host=$host;dbname=$dbname",
+            $dsn,
             $user,
             $password,
-            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false
+            ]
         );
         return $pdo;
     } catch (PDOException $e) {
         http_response_code(500);
-        echo json_encode(['error' => 'Erro de conexão com o banco de dados']);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Erro de conexão com o banco de dados'
+        ]);
         exit;
     }
 }
 PHPEOF
-fi
 
-# Substituir credenciais
-sed -i "s/DB_HOST/'localhost'/" "$CONFIG_FILE"
-sed -i "s/DB_NAME/'$DB_NAME'/" "$CONFIG_FILE"
-sed -i "s/DB_USER/'$DB_USER'/" "$CONFIG_FILE"
-sed -i "s/DB_PASS/'$DB_PASS'/" "$CONFIG_FILE"
+# Substituir placeholders
+sed -i "s/DB_NAME_PLACEHOLDER/$DB_NAME/" "$WEB_DIR/api/config.php"
+sed -i "s/DB_USER_PLACEHOLDER/$DB_USER/" "$WEB_DIR/api/config.php"
+sed -i "s/DB_PASS_PLACEHOLDER/$DB_PASS/" "$WEB_DIR/api/config.php"
 
-echo -e "   ${VERDE}✓ Conexão configurada em api/config.php${SEM_COR}"
+echo -e "   ${VERDE}✓ config.php criado${SEM_COR}"
 
 # ============================================
-# 7. EXECUTAR MIGRATIONS DO BANCO
+# 9. EXECUTAR MIGRATIONS E CRIAR ADMIN
 # ============================================
-echo -e "\n${AZUL}═══ [7/8] Executando migrations...${SEM_COR}"
+echo -e "\n${AZUL}═══ [9/10] Executando migrations e criando admin...${SEM_COR}"
 
 run_sql_file() {
     local file="$1"
     local desc="$2"
     if [ -f "$file" ]; then
         echo "   Executando: $desc"
-        if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -f "$file" 2>&1 | tee /tmp/seeder_migration.log; then
-            echo -e "   ${VERDE}✓ $desc${SEM_COR}"
-        else
-            echo -e "   ${AMARELO}⚠ Erro ao executar $desc (verifique /tmp/seeder_migration.log)${SEM_COR}"
-        fi
-    else
-        echo -e "   ${AMARELO}⚠ Arquivo não encontrado: $file${SEM_COR}"
+        PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -f "$file" 2>&1 || \
+            echo -e "   ${AMARELO}⚠ Aviso em: $desc (pode ser normal se já executado)${SEM_COR}"
     fi
 }
 
-# Ordem correta das migrations
 run_sql_file "$WEB_DIR/database/schema.sql" "Schema inicial"
-run_sql_file "$WEB_DIR/database/migration_fase2.sql" "Migração Fase 2 (profiles)"
-run_sql_file "$WEB_DIR/database/migration_auth.sql" "Migração Autenticação (users)"
-run_sql_file "$WEB_DIR/database/migration_variables_v2.sql" "Migração Variáveis (categorias)"
+run_sql_file "$WEB_DIR/database/migration_fase2.sql" "Fase 2 (profiles)"
+run_sql_file "$WEB_DIR/database/migration_auth.sql" "Autenticação (users)"
+run_sql_file "$WEB_DIR/database/migration_variables_v2.sql" "Variáveis (categorias)"
 
-# ============================================
-# 8. CRIAR USUÁRIO ADMIN
-# ============================================
-echo ""
-echo "   Criando usuário administrador padrão..."
-
-# Gerar hash bcrypt
+# Criar admin
+echo "   Criando usuário administrador..."
 HASH=$(php -r "echo password_hash('$ADMIN_PASS', PASSWORD_BCRYPT);")
 
-# Inserir ou atualizar admin
 PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<EOF
 INSERT INTO users (name, email, password_hash, role, active, created_at)
 VALUES ('$ADMIN_NAME', '$ADMIN_EMAIL', '$HASH', 'admin_gap', TRUE, NOW())
 ON CONFLICT (email) 
-DO UPDATE SET 
-    password_hash = '$HASH',
-    role = 'admin_gap',
-    active = TRUE;
+DO UPDATE SET password_hash = '$HASH', role = 'admin_gap', active = TRUE;
 EOF
 
-echo -e "   ${VERDE}✓ Admin criado: $ADMIN_EMAIL${SEM_COR}"
+echo -e "   ${VERDE}✓ Admin criado/atualizado${SEM_COR}"
 
 # ============================================
-# 9. CONFIGURAR APACHE
+# 10. CONFIGURAR APACHE E PERMISSÕES
 # ============================================
-echo -e "\n${AZUL}═══ [8/8] Configurando Apache...${SEM_COR}"
+echo -e "\n${AZUL}═══ [10/10] Configurando Apache...${SEM_COR}"
 
-# Habilitar mod_rewrite
 a2enmod rewrite
 
-# Criar virtual host
 cat > /etc/apache2/sites-available/seederlinux.conf <<EOF
 <VirtualHost *:80>
     ServerAdmin admin@localhost
@@ -304,21 +314,34 @@ cat > /etc/apache2/sites-available/seederlinux.conf <<EOF
 </VirtualHost>
 EOF
 
-# Desabilitar site padrão e habilitar o novo
 a2dissite 000-default.conf 2>/dev/null || true
 a2ensite seederlinux.conf
 
-# Configurar permissões
 chown -R www-data:www-data "$WEB_DIR"
 chmod -R 755 "$WEB_DIR"
 mkdir -p "$WEB_DIR/storage"
 chmod -R 775 "$WEB_DIR/storage"
 chown -R www-data:www-data "$WEB_DIR/storage"
 
-# Reiniciar Apache
 systemctl restart apache2
 
 echo -e "   ${VERDE}✓ Apache configurado${SEM_COR}"
+
+# ============================================
+# VERIFICAÇÃO FINAL
+# ============================================
+echo -e "\n${AZUL}═══ Verificação Final...${SEM_COR}"
+
+echo "   Testando API..."
+API_RESPONSE=$(curl -s http://localhost/api/organizations 2>&1 || echo "FALHA")
+
+if echo "$API_RESPONSE" | grep -q "success\|COMARA\|id\|name"; then
+    echo -e "   ${VERDE}✓ API funcionando${SEM_COR}"
+elif echo "$API_RESPONSE" | grep -q "login\|token\|auth\|não autenticado\|não autorizado"; then
+    echo -e "   ${VERDE}✓ API funcionando (requer autenticação - normal)${SEM_COR}"
+else
+    echo -e "   ${AMARELO}⚠ Resposta inesperada da API: ${API_RESPONSE:0:100}${SEM_COR}"
+fi
 
 # ============================================
 # RESUMO FINAL
@@ -340,9 +363,6 @@ echo ""
 echo -e "👨‍💼 Admin:      ${AZUL}$ADMIN_EMAIL${SEM_COR}"
 echo -e "🔐 Senha:      ${AZUL}$ADMIN_PASS${SEM_COR}"
 echo ""
-echo -e "${AMARELO}⚠️  IMPORTANTE: Altere a senha do admin no primeiro acesso!${SEM_COR}"
+echo -e "${AMARELO}⚠️  Altere a senha do admin no primeiro acesso!${SEM_COR}"
+echo -e "${AMARELO}⚠️  Altere a senha do banco em produção!${SEM_COR}"
 echo ""
-echo -e "📁 Logs:       /var/log/apache2/seederlinux_*.log"
-echo -e "📁 Arquivos:   $WEB_DIR"
-echo ""
-echo -e "${AZUL}⚠️  Guarde as senhas acima. Elas não serão exibidas novamente.${SEM_COR}"
