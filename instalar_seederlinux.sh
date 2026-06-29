@@ -2,6 +2,7 @@
 # =============================================================================
 # instalar_seederlinux.sh - Instalação Completa do SeederLinux Lite
 # =============================================================================
+# Compatível com PostgreSQL 14+ (incluindo a versão 17)
 # Uso: sudo ./instalar_seederlinux.sh
 # =============================================================================
 
@@ -137,17 +138,39 @@ echo -e "\n${AZUL}═══ [4/10] Criando usuário e banco PostgreSQL...${SEM_C
 systemctl start postgresql
 systemctl enable postgresql
 
+# Detectar versão do PostgreSQL para decidir o método de autenticação
+PG_VERSION=$(sudo -u postgres psql -tAc "SHOW server_version;" 2>/dev/null | cut -d. -f1)
+if [ "$PG_VERSION" -ge 14 ]; then
+    AUTH_METHOD="scram-sha-256"
+else
+    AUTH_METHOD="md5"
+fi
+echo "   Versão PostgreSQL: $PG_VERSION -> usando autenticação $AUTH_METHOD"
+
+# Criar usuário e banco (se não existirem)
 su - postgres <<PGEOF
-psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1 || \
-    psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';"
-
-psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 || \
-    psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
-
-psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
-
-psql -d $DB_NAME -c "GRANT ALL ON SCHEMA public TO $DB_USER;"
-psql -d $DB_NAME -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;"
+-- Garantir que a criptografia de senha seja a padrão (scram para PG14+)
+SET password_encryption = 'scram-sha-256';
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$DB_USER') THEN
+        CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';
+    ELSE
+        ALTER ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';
+    END IF;
+END
+\$\$;
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME') THEN
+        CREATE DATABASE $DB_NAME OWNER $DB_USER;
+    END IF;
+END
+\$\$;
+GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
+\c $DB_NAME
+GRANT ALL ON SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
 PGEOF
 
 echo -e "   ${VERDE}✓ Banco '$DB_NAME' e usuário '$DB_USER' criados${SEM_COR}"
@@ -155,38 +178,68 @@ echo -e "   ${VERDE}✓ Banco '$DB_NAME' e usuário '$DB_USER' criados${SEM_COR}
 # ============================================
 # 5. CONFIGURAR AUTENTICAÇÃO DO POSTGRESQL
 # ============================================
-echo -e "\n${AZUL}═══ [5/10] Configurando autenticação PostgreSQL (md5)...${SEM_COR}"
+echo -e "\n${AZUL}═══ [5/10] Configurando autenticação PostgreSQL ($AUTH_METHOD)...${SEM_COR}"
 
 PG_HBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")
 echo "   Arquivo: $PG_HBA"
 
 if [ -f "$PG_HBA" ]; then
+    # Backup
     cp "$PG_HBA" "${PG_HBA}.bak.$(date +%s)"
     
-    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
-    sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
+    # Remover entradas anteriores que possam conflitar (para o usuário seederlinux)
+    sed -i '/# Regras para seederlinux/d' "$PG_HBA"
+    sed -i '/host.*seederlinux.*seederlinux/d' "$PG_HBA"
+    sed -i '/local.*seederlinux.*seederlinux/d' "$PG_HBA"
     
-    systemctl restart postgresql
-    echo -e "   ${VERDE}✓ Autenticação configurada para md5${SEM_COR}"
+    # Inserir regras específicas no INÍCIO do arquivo (prioridade máxima)
+    sed -i "1i# Regras para seederlinux (autenticação $AUTH_METHOD)" "$PG_HBA"
+    sed -i "2ilocal   seederlinux     seederlinux                             $AUTH_METHOD" "$PG_HBA"
+    sed -i "3ihost    seederlinux     seederlinux     127.0.0.1/32            $AUTH_METHOD" "$PG_HBA"
+    sed -i "4ihost    seederlinux     seederlinux     ::1/128                 $AUTH_METHOD" "$PG_HBA"
+    
+    # Ajustar as regras globais para também usarem o mesmo método
+    sed -i "s/^local\s\+all\s\+all\s\+.*/local   all             all                                     $AUTH_METHOD/" "$PG_HBA"
+    sed -i "s/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+.*/host    all             all             127.0.0.1\/32            $AUTH_METHOD/" "$PG_HBA"
+    sed -i "s/^host\s\+all\s\+all\s\+::1\/128\s\+.*/host    all             all             ::1\/128                 $AUTH_METHOD/" "$PG_HBA"
+    
+    # Recarregar configuração
+    systemctl reload postgresql
+    echo -e "   ${VERDE}✓ pg_hba.conf ajustado para $AUTH_METHOD${SEM_COR}"
 else
     echo -e "   ${AMARELO}⚠ pg_hba.conf não encontrado${SEM_COR}"
 fi
 
 # ============================================
-# 6. TESTAR CONEXÃO COM BANCO
+# 6. TESTAR E CORRIGIR CONEXÃO COM BANCO
 # ============================================
 echo -e "\n${AZUL}═══ [6/10] Testando conexão com banco...${SEM_COR}"
 
-if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 'CONEXAO_OK' AS status;" 2>&1 | grep -q "CONEXAO_OK"; then
-    echo -e "   ${VERDE}✓ Conexão com PostgreSQL funcionando${SEM_COR}"
+testar_conexao() {
+    PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 'CONEXAO_OK' AS status;" 2>&1 | grep -q "CONEXAO_OK"
+}
+
+if testar_conexao; then
+    echo -e "   ${VERDE}✓ Conexão com PostgreSQL funcionando corretamente${SEM_COR}"
 else
-    echo -e "   ${VERMELHO}❌ Falha na conexão com PostgreSQL${SEM_COR}"
-    echo "   Tentando método alternativo (peer)..."
+    echo -e "   ${AMARELO}⚠ Conexão falhou. Redefinindo senha com método $AUTH_METHOD...${SEM_COR}"
     
-    su - postgres -c "psql -d $DB_NAME -c \"SELECT 'CONEXAO_OK' AS status;\"" 2>&1 | grep -q "CONEXAO_OK" && \
-        echo -e "   ${AMARELO}⚠ Conexão peer funciona, mas senha falhou. Verifique pg_hba.conf${SEM_COR}" || \
-        echo -e "   ${VERMELHO}❌ Nenhum método de conexão funcionou${SEM_COR}"
+    # Redefinir a senha explicitamente com o método correto
+    if [ "$AUTH_METHOD" = "scram-sha-256" ]; then
+        su - postgres -c "psql -c \"SET password_encryption = 'scram-sha-256'; ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';\""
+    else
+        su - postgres -c "psql -c \"SET password_encryption = 'md5'; ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';\""
+    fi
+    
+    systemctl reload postgresql
+    
+    if testar_conexao; then
+        echo -e "   ${VERDE}✓ Conexão restaurada após redefinir senha${SEM_COR}"
+    else
+        echo -e "   ${VERMELHO}❌ Ainda não foi possível conectar. Verifique o log do PostgreSQL:${SEM_COR}"
+        echo "      sudo tail -20 /var/log/postgresql/postgresql-*-main.log"
+        exit 1
+    fi
 fi
 
 # ============================================
@@ -212,7 +265,6 @@ mkdir -p "$WEB_DIR/api"
 
 cat > "$WEB_DIR/api/config.php" <<'PHPEOF'
 <?php
-// Configuração de conexão com PostgreSQL
 function getDBConnection() {
     $host = 'localhost';
     $port = '5432';
@@ -244,7 +296,6 @@ function getDBConnection() {
 }
 PHPEOF
 
-# Substituir placeholders
 sed -i "s/DB_NAME_PLACEHOLDER/$DB_NAME/" "$WEB_DIR/api/config.php"
 sed -i "s/DB_USER_PLACEHOLDER/$DB_USER/" "$WEB_DIR/api/config.php"
 sed -i "s/DB_PASS_PLACEHOLDER/$DB_PASS/" "$WEB_DIR/api/config.php"
