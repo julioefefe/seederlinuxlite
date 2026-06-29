@@ -71,14 +71,18 @@ echo -e "\n${AZUL}═══ [3/10] Instalando dependências...${SEM_COR}"
 
 apt update
 
+# Lista de extensões PHP necessárias (nomes sem versão)
+PHP_EXTENSIONS="cli common pgsql curl mbstring xml json"
+
 case $DISTRO in
     ubuntu|linuxmint|zorin)
+        # Em Ubuntu/Mint, pode precisar do PPA para versões recentes
         if ! dpkg -l | grep -q php8; then
             apt install -y software-properties-common
             add-apt-repository -y ppa:ondrej/php
             apt update
         fi
-        
+        # Instala PHP 8.1 (padrão no PPA) e extensões
         apt install -y \
             apache2 \
             libapache2-mod-php8.1 \
@@ -100,17 +104,18 @@ case $DISTRO in
             rsync
         ;;
     debian)
+        # Debian 12+ usa pacotes genéricos (php, php-cli, etc.)
+        # Monta a lista de pacotes dinamicamente
+        PHP_PACKAGES="php libapache2-mod-php"
+        for ext in $PHP_EXTENSIONS; do
+            if apt-cache show "php-${ext}" &>/dev/null; then
+                PHP_PACKAGES="$PHP_PACKAGES php-${ext}"
+            fi
+        done
+        
         apt install -y \
             apache2 \
-            libapache2-mod-php \
-            php \
-            php-cli \
-            php-common \
-            php-pgsql \
-            php-curl \
-            php-mbstring \
-            php-xml \
-            php-json \
+            $PHP_PACKAGES \
             postgresql \
             postgresql-client \
             curl \
@@ -127,6 +132,11 @@ case $DISTRO in
 esac
 
 echo -e "   ${VERDE}✓ Dependências instaladas${SEM_COR}"
+
+# Garantir que os módulos Apache essenciais estão ativos
+a2enmod php* 2>/dev/null || true
+a2enmod rewrite 2>/dev/null || true
+systemctl restart apache2
 
 # ============================================
 # 4. INICIAR POSTGRESQL
