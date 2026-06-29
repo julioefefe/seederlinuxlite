@@ -107,6 +107,7 @@ case $DISTRO in
             git \
             unzip \
             openssl \
+            rsync \
             jq
         ;;
     debian)
@@ -127,6 +128,7 @@ case $DISTRO in
             git \
             unzip \
             openssl \
+             rsync \
             jq
         ;;
     *)
